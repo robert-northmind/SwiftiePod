@@ -68,7 +68,7 @@ struct InternalProviderResolver: ProviderResolver {
     private func checkCyclicDependency(anyProvider: AnyProvider, processingAnyProviders: ProcessingAnyProviders?) {
         if let processingAnyProviders = processingAnyProviders, processingAnyProviders.contains(anyProvider) {
             let providerDescriptions = processingAnyProviders.cycleErrorDescription(anyProvider)
-            fatalError("\n\(providerDescriptions)")
+            cyclicDependencyHandler("\n\(providerDescriptions)")
         }
     }
 }

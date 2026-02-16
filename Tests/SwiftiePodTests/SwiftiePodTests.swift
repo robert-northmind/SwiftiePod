@@ -288,9 +288,33 @@ struct SwiftiePodTests {
         #expect(result1 == result3)
     }
 
-    @Test("Cyclic dependency fails", .disabled("Cyclic check calls fatalError, which cannot be tested"))
+    @Test("Cyclic dependency is detected")
     func testCyclicProviders() {
-        _ = pod.resolve(cyclicProvider)
+        let capturedMessage = ThreadSafeResults<String>()
+        let detected = DispatchSemaphore(value: 0)
+
+        let originalHandler = cyclicDependencyHandler
+        cyclicDependencyHandler = { message in
+            capturedMessage.append(message)
+            detected.signal()
+            // Block the thread forever instead of exiting it.
+            // Thread.exit() would leave the SwiftiePod dispatch queue
+            // in a bad state and crash the process.
+            repeat { Thread.sleep(forTimeInterval: 86400) } while true
+        }
+
+        let thread = Thread {
+            let testPod = SwiftiePod()
+            _ = testPod.resolve(cyclicProvider)
+        }
+        thread.start()
+
+        detected.wait()
+
+        cyclicDependencyHandler = originalHandler
+
+        #expect(capturedMessage.values.count == 1)
+        #expect(capturedMessage.values.first?.contains("Dependencies cycle detected") == true)
     }
 
     // MARK: - Dependency chain tests
