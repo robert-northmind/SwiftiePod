@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name         = 'SwiftiePod'
-    s.version      = '1.1.1'
+    s.version      = '1.1.2'
     s.summary      = 'A Dependency Injection library for Swift'
     s.description  = 'SwiftiePod is a lightweight and easy-to-use Dependency Injection (DI) library for Swift. It is designed to be straightforward, efficient, and most importantly safe!'
     s.homepage     = 'https://github.com/robert-northmind/SwiftiePod'
