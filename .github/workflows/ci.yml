@@ -26,12 +26,18 @@ jobs:
         working-directory: Examples/ExampleApp/
         run: swift run
 
+      - name: Select iOS Simulator
+        run: |
+          DEVICE_NAME=$(xcrun simctl list devices available | grep "iPhone" | head -1 | sed 's/^ *//' | sed 's/ (.*//')
+          echo "Using simulator: $DEVICE_NAME"
+          echo "SIMULATOR_DEVICE=$DEVICE_NAME" >> $GITHUB_ENV
+
       - name: Build iOS Example App
         run: |
           xcodebuild build-for-testing \
             -project Examples/ExampleIosApp/ExampleIosApp.xcodeproj \
             -scheme ExampleIosApp \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_DEVICE" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
 
@@ -40,7 +46,7 @@ jobs:
           xcodebuild test \
             -project Examples/ExampleIosApp/ExampleIosApp.xcodeproj \
             -scheme ExampleIosApp \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_DEVICE" \
             -only-testing:ExampleIosAppTests \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
