@@ -74,6 +74,48 @@ let cyclicProvider: Provider<Int> = Provider { pod in
     return pod.resolve(cyclicProvider)
 }
 
+// Protocol-based providers for testing
+protocol ServiceProtocol {
+    var name: String { get }
+}
+
+class ConcreteService: ServiceProtocol {
+    let name: String
+    init(name: String = "ConcreteService") {
+        self.name = name
+    }
+}
+
+let serviceProvider = Provider<ServiceProtocol> { _ in
+    return ConcreteService()
+}
+
+// Dependency chain providers
+class ServiceWithDependency {
+    let dependency: ServiceProtocol
+    init(dependency: ServiceProtocol) {
+        self.dependency = dependency
+    }
+}
+
+let serviceWithDependencyProvider = Provider { pod in
+    return ServiceWithDependency(dependency: pod.resolve(serviceProvider))
+}
+
+// Thread-safe result collector for concurrency tests
+final class ThreadSafeResults<T>: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "test.results.queue")
+    private var _values: [T] = []
+
+    func append(_ value: T) {
+        queue.sync { _values.append(value) }
+    }
+
+    var values: [T] {
+        queue.sync { _values }
+    }
+}
+
 struct MockProviderResolver: ProviderResolver {
     func resolve<T>(_ provider: Provider<T>) -> T {
         return provider.build(self)

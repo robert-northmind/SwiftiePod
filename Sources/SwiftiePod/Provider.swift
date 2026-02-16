@@ -54,16 +54,16 @@
 /// that the instance is cached throughout the lifetime of your application.
 /// But you can also use `AlwaysCreateNewScope` to make sure a new instance is always created.
 /// You can even define your own custom scopes.
-public final class Provider<T>: Hashable, Sendable {
+public final class Provider<T>: Hashable, @unchecked Sendable {
     public init(
         scope: ProviderScope = SingletonScope(),
-        _ builder: @escaping @Sendable (ProviderResolver) -> T
+        _ builder: @escaping (ProviderResolver) -> T
     ) {
         self.builder = builder
         self.scope = scope
     }
 
-    private let builder: @Sendable (ProviderResolver) -> T
+    private let builder: (ProviderResolver) -> T
     let scope: ProviderScope
 
     func build(_ providerResolver: ProviderResolver) -> T {

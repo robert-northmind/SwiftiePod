@@ -81,7 +81,7 @@ let dataService = pod.resolve(dataServiceProvider)
 // Now you can use the dataService...
 ```
 
-For more in-depth examples, see the [ExampleApp](Examples/ExampleApp/Sources/).
+For more in-depth examples, see the [iOS Example App](Examples/ExampleIosApp/).
 
 ## Documentation
 
@@ -290,6 +290,66 @@ This will make sure that all cached (with the SignUpFlowScope) are cleared from 
 
 **NOTE:**  
 Providers which are using the `SingletonScope` will ignore the `clearCachedInstances`, meaning that these instances will never be cleared. They are cached for the lifetime of your `pod`.
+
+## Swift Concurrency
+
+SwiftiePod is designed to work seamlessly with Swift's concurrency model, including projects that use `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (the default in Xcode 26+).
+
+### Important guidelines
+
+**1. Define providers as top-level variables**
+
+Always define your `Provider` instances at the top level of a file (module scope), not inside classes or structs:
+
+```swift
+// Correct: top-level provider
+let myServiceProvider = Provider { _ in
+    return MyService()
+}
+
+class MyService { ... }
+```
+
+```swift
+// Avoid: provider inside a class
+class SomeClass {
+    let provider = Provider { _ in MyService() } // Don't do this
+}
+```
+
+**2. Use the passed-in `pod` parameter for dependencies**
+
+Inside a builder closure, always use the `pod` parameter that is passed in. Never capture and use the `SwiftiePod` instance directly, as this will cause a deadlock:
+
+```swift
+let pod = SwiftiePod()
+
+// Correct: use the passed-in pod parameter
+let serviceProvider = Provider { pod in
+    return MyService(dependency: pod.resolve(otherProvider))
+}
+
+// Wrong: capturing the outer pod causes a deadlock
+let badProvider = Provider { _ in
+    return MyService(dependency: pod.resolve(otherProvider)) // Deadlock!
+}
+```
+
+**3. Keep builder closures lightweight**
+
+Builder closures run inside an internal serial queue. Keep them limited to simple object construction. Avoid heavy I/O, network calls, or dispatching synchronously to specific threads inside builders.
+
+### How it works
+
+SwiftiePod uses `@unchecked Sendable` on the `Provider` class to allow provider instances to be shared across concurrency boundaries. The builder closures are not marked `@Sendable`, which allows them to work with types that have any actor isolation (including implicitly `@MainActor` classes in Xcode 26+ projects).
+
+The `SwiftiePod` container uses a serial dispatch queue to ensure all resolve operations are thread-safe. Singleton instances are created exactly once and cached for subsequent resolves.
+
+### Thread safety
+
+- All `resolve`, `overrideProvider`, `removeOverrideProvider`, and `clearCachedInstances` operations are thread-safe
+- Concurrent calls to `resolve` from multiple threads are safe
+- Singleton providers are guaranteed to create their instance only once
 
 ## Contributing
 
