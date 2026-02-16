@@ -8,25 +8,51 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Swift
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          xcode-version: latest
+          persist-credentials: false
 
       - name: Build Swift package
         run: swift build
 
-      - name: Run tests
+      - name: Run Swift package tests
         run: swift test
 
       - name: Build and Run ExampleApp
         working-directory: Examples/ExampleApp/
         run: swift run
+
+      - name: Select iOS Simulator
+        run: |
+          DEVICE_NAME=$(xcrun simctl list devices available | grep "iPhone" | head -1 | sed 's/^ *//' | sed 's/ (.*//')
+          echo "Using simulator: $DEVICE_NAME"
+          echo "SIMULATOR_DEVICE=$DEVICE_NAME" >> $GITHUB_ENV
+
+      - name: Build iOS Example App
+        run: |
+          xcodebuild build-for-testing \
+            -project Examples/ExampleIosApp/ExampleIosApp.xcodeproj \
+            -scheme ExampleIosApp \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_DEVICE" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Run iOS Example App Tests
+        run: |
+          xcodebuild test \
+            -project Examples/ExampleIosApp/ExampleIosApp.xcodeproj \
+            -scheme ExampleIosApp \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_DEVICE" \
+            -only-testing:ExampleIosAppTests \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO

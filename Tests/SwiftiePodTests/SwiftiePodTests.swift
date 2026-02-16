@@ -124,27 +124,24 @@ struct SwiftiePodTests {
     }
     
     @Test("Can handle concurrency. Random int provider should always produce same value for all tasks")
-    func testDependencyCycles() async {
+    func testConcurrentResolveSingleton() async {
         let iterations = 40
+        let results = ThreadSafeResults<String>()
 
         let dispatchGroup = DispatchGroup()
         let queue = DispatchQueue(label: "concurrentQueue", attributes: .concurrent)
-        var resultSet = Set<String>()
-        
+
         for _ in 0..<iterations {
             dispatchGroup.enter()
             queue.async {
-                Task {
-                    let randomIntAsString = pod.resolve(randomIntAsStringProvider)
-                    await MainActor.run(body: {
-                        resultSet.insert(randomIntAsString)
-                        dispatchGroup.leave()
-                    })
-                }
+                let randomIntAsString = pod.resolve(randomIntAsStringProvider)
+                results.append(randomIntAsString)
+                dispatchGroup.leave()
             }
         }
         await dispatchGroup.waitForCompletion()
-        #expect(resultSet.count == 1)
+        let uniqueValues = Set(results.values)
+        #expect(uniqueValues.count == 1)
     }
     
     @Test("Clear instances for scope removes all cached instances for that scope")
@@ -291,9 +288,159 @@ struct SwiftiePodTests {
         #expect(result1 == result3)
     }
 
-    @Test("Cyclic dependency fails", .disabled("Cyclic check calls fatalError, which cannot be tested"))
+    @Test("Cyclic dependency is detected")
     func testCyclicProviders() {
-        _ = pod.resolve(cyclicProvider)
+        let capturedMessage = ThreadSafeResults<String>()
+        let detected = DispatchSemaphore(value: 0)
+
+        let originalHandler = cyclicDependencyHandler
+        cyclicDependencyHandler = { message in
+            capturedMessage.append(message)
+            detected.signal()
+            // Block the thread forever instead of exiting it.
+            // Thread.exit() would leave the SwiftiePod dispatch queue
+            // in a bad state and crash the process.
+            repeat { Thread.sleep(forTimeInterval: 86400) } while true
+        }
+
+        let thread = Thread {
+            let testPod = SwiftiePod()
+            _ = testPod.resolve(cyclicProvider)
+        }
+        thread.start()
+
+        detected.wait()
+
+        cyclicDependencyHandler = originalHandler
+
+        #expect(capturedMessage.values.count == 1)
+        #expect(capturedMessage.values.first?.contains("Dependencies cycle detected") == true)
     }
-    
+
+    // MARK: - Dependency chain tests
+
+    @Test("Provider with dependency chain resolves correctly")
+    func testDependencyChainResolution() {
+        let result = pod.resolve(serviceWithDependencyProvider)
+        #expect(result.dependency.name == "ConcreteService")
+    }
+
+    @Test("Protocol-typed provider resolves to concrete type")
+    func testProtocolTypedProvider() {
+        let result = pod.resolve(serviceProvider)
+        #expect(result.name == "ConcreteService")
+        #expect(result is ConcreteService)
+    }
+
+    @Test("Dependency chain returns same singleton instances")
+    func testDependencyChainSingleton() {
+        let result1 = pod.resolve(serviceWithDependencyProvider)
+        let result2 = pod.resolve(serviceWithDependencyProvider)
+        // Both resolves should return the same cached instance
+        #expect(result1 === result2)
+        // The dependency should also be the same singleton
+        #expect(result1.dependency as AnyObject === result2.dependency as AnyObject)
+    }
+
+    // MARK: - Override without @Sendable tests
+
+    @Test("Override provider works with closure capturing local mutable state")
+    func testOverrideWithNonSendableClosure() {
+        var callCount = 0
+        pod.overrideProvider(testAlwaysNewProvider) { _ in
+            callCount += 1
+            return SubTestClass()
+        }
+
+        _ = pod.resolve(testAlwaysNewProvider)
+        _ = pod.resolve(testAlwaysNewProvider)
+        _ = pod.resolve(testAlwaysNewProvider)
+
+        #expect(callCount == 3)
+    }
+
+    @Test("Override provider with dependency chain works")
+    func testOverrideWithDependencyChain() {
+        pod.overrideProvider(serviceProvider) { _ in
+            return ConcreteService(name: "MockService")
+        }
+
+        let result = pod.resolve(serviceWithDependencyProvider)
+        // The dependency should use the overridden provider
+        #expect(result.dependency.name == "MockService")
+    }
+
+    // MARK: - Concurrent resolve + override tests
+
+    @Test("Concurrent resolves with override produce consistent results")
+    func testConcurrentResolveWithOverride() async {
+        pod.overrideProvider(fixedIntProvider) { _ in
+            return 999
+        }
+
+        let iterations = 40
+        let results = ThreadSafeResults<Int>()
+        let dispatchGroup = DispatchGroup()
+        let queue = DispatchQueue(label: "concurrentOverrideQueue", attributes: .concurrent)
+
+        for _ in 0..<iterations {
+            dispatchGroup.enter()
+            queue.async {
+                let value = pod.resolve(fixedIntProvider)
+                results.append(value)
+                dispatchGroup.leave()
+            }
+        }
+        await dispatchGroup.waitForCompletion()
+
+        // All results should be the overridden value
+        for value in results.values {
+            #expect(value == 999)
+        }
+    }
+
+    // MARK: - Concurrent clearAllInstances tests
+
+    @Test("Concurrent resolves during cache clearing do not crash")
+    func testConcurrentResolveWithCacheClear() async {
+        let iterations = 40
+        let results = ThreadSafeResults<Bool>()
+        let dispatchGroup = DispatchGroup()
+        let queue = DispatchQueue(label: "concurrentClearQueue", attributes: .concurrent)
+
+        for i in 0..<iterations {
+            dispatchGroup.enter()
+            queue.async {
+                if i % 5 == 0 {
+                    // Every 5th iteration, clear the cache
+                    pod.clearCachedInstances(forScope: CustomParentScope())
+                }
+                // Always resolve
+                _ = pod.resolve(testCustomParentScopeProvider)
+                results.append(true)
+                dispatchGroup.leave()
+            }
+        }
+        await dispatchGroup.waitForCompletion()
+
+        // All results should have successfully resolved to TestClass
+        for value in results.values {
+            #expect(value == true)
+        }
+        #expect(results.values.count == iterations)
+    }
+
+    // MARK: - Provider with value types
+
+    @Test("Provider with Int value type resolves correctly")
+    func testIntProvider() {
+        let result = pod.resolve(fixedIntProvider)
+        #expect(result == 123)
+    }
+
+    @Test("Provider with String dependency chain resolves correctly")
+    func testStringDependencyChain() {
+        let result = pod.resolve(fixedIntAsStringProvider)
+        #expect(result == "123")
+    }
 }

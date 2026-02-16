@@ -68,7 +68,7 @@ public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
     ///   - scope: The scope within which the override is applied. Defaults to `nil`, meaning it will use the same scope as the provider it overrides.
     public func overrideProvider<T>(
         _ provider: Provider<T>,
-        with builder: @escaping @Sendable (ProviderResolver) -> T,
+        with builder: @escaping (ProviderResolver) -> T,
         scope: ProviderScope? = nil
     ) {
         dispatchQueue.sync {

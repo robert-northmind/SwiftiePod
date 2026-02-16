@@ -62,7 +62,7 @@ final class ProviderOverrider: @unchecked Sendable {
     
     func overrideProvider<T>(
         _ provider: Provider<T>,
-        with builder: @escaping @Sendable (ProviderResolver) -> T,
+        with builder: @escaping (ProviderResolver) -> T,
         scope: ProviderScope? = nil
     ) {
         dispatchQueue.sync {
