@@ -6,5 +6,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "ExampleIosApp"
+    name: "ExampleIosApp",
+    platforms: [.iOS(.v16)],
+    dependencies: [
+        .package(path: "../../")
+    ],
+    targets: [
+        .target(
+            name: "ExampleIosApp",
+            dependencies: [.product(name: "SwiftiePod", package: "SwiftiePod")],
+            path: "ExampleIosApp"
+        )
+    ]
 )
