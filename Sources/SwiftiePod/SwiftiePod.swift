@@ -23,9 +23,13 @@ import Foundation
 public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
     public init() {
         self.providerOverrider = ProviderOverrider(instanceContainer: ProviderInstanceContainer())
+        // Mark this queue so we can detect re-entrant calls from within a builder.
+        dispatchQueue.setSpecific(key: queueKey, value: true)
     }
 
     private let dispatchQueue = DispatchQueue(label: "SwiftiePod.resolve.lock.queue")
+    // Used to detect whether the current execution context is already inside the queue.
+    private let queueKey = DispatchSpecificKey<Bool>()
 
     private let instanceContainer = ProviderInstanceContainer()
     private let providerOverrider: ProviderOverrider
@@ -41,16 +45,28 @@ public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
     ///
     /// - Parameter provider: The provider to resolve.
     /// - Returns: The instance associated with the given provider.
+    ///
+    /// - Note: The preferred way to resolve nested dependencies is to use the `ProviderResolver`
+    ///   parameter that is passed into a provider's builder closure. Calling `pod.resolve()` on
+    ///   this `SwiftiePod` instance from within a builder closure (e.g. via a global reference)
+    ///   is also supported — the container detects re-entrant calls and avoids deadlocking.
     public func resolve<T>(_ originalProvider: Provider<T>) -> T {
-        let theInstance = dispatchQueue.sync {
-            let internalProviderResolver = InternalProviderResolver(
-                instanceContainer: instanceContainer,
-                processingAnyProviders: ProcessingAnyProviders.getInitial(),
-                providerOverrider: providerOverrider
-            )
-            return internalProviderResolver.resolve(originalProvider)
+        // If we are already executing on the queue (re-entrant call from within a builder
+        // that references this pod directly), skip the `sync` to prevent a deadlock.
+        if DispatchQueue.getSpecific(key: queueKey) == true {
+            return makeInternalResolver().resolve(originalProvider)
         }
-        return theInstance
+        return dispatchQueue.sync {
+            makeInternalResolver().resolve(originalProvider)
+        }
+    }
+
+    private func makeInternalResolver() -> InternalProviderResolver {
+        InternalProviderResolver(
+            instanceContainer: instanceContainer,
+            processingAnyProviders: ProcessingAnyProviders.getInitial(),
+            providerOverrider: providerOverrider
+        )
     }
 
     /// Overrides an existing provider with a custom builder so that you can change how to return an instance of that providers type.
