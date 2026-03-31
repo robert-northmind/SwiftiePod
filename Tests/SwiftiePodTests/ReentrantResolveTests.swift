@@ -121,6 +121,47 @@ struct ReentrantResolveTests {
     }
 }
 
+    // MARK: - Self-referential re-entrant cycle (issue #5)
+
+    /// A provider whose builder calls `pod.resolve()` on **itself** (via a
+    /// direct pod reference) must be detected as a cyclic dependency and call
+    /// `cyclicDependencyHandler` rather than looping forever.
+    ///
+    /// Uses the same thread-blocking pattern as the existing cyclic dependency
+    /// test to prevent the resolve thread from continuing after the handler fires.
+    @Test("Re-entrant self-cycle via direct pod reference calls cyclic dependency handler (issue #5)")
+    func testReentrantSelfCycleIsDetected() {
+        let pod = SwiftiePod()
+
+        let detectedCycle = ThreadSafeResults<String>()
+        let detected = DispatchSemaphore(value: 0)
+
+        let originalHandler = cyclicDependencyHandler
+        cyclicDependencyHandler = { message in
+            detectedCycle.append(message)
+            detected.signal()
+            // Block the thread so execution does not fall through after detection.
+            repeat { Thread.sleep(forTimeInterval: 86400) } while true
+        }
+
+        // The provider captures itself and calls pod.resolve() on itself directly.
+        var selfRefProvider: Provider<String>?
+        selfRefProvider = Provider<String> { _ in
+            pod.resolve(selfRefProvider!)  // ← re-entrant self-cycle
+        }
+
+        let resolveThread = Thread {
+            _ = pod.resolve(selfRefProvider!)
+        }
+        resolveThread.start()
+
+        detected.wait()
+        cyclicDependencyHandler = originalHandler
+
+        #expect(detectedCycle.values.count == 1)
+        #expect(detectedCycle.values.first?.contains("Re-entrant cyclic dependency detected") == true)
+    }
+
 // MARK: - Test helpers
 
 private final class LoggerStub {
