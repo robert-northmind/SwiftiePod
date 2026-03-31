@@ -33,6 +33,10 @@ public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
 
     private let instanceContainer = ProviderInstanceContainer()
     private let providerOverrider: ProviderOverrider
+    // Tracks providers whose builder is actively on the call stack, so that
+    // re-entrant calls to pod.resolve() on the same provider can be detected
+    // as self-referential cycles rather than silently recursing forever.
+    private var currentlyBuildingProviders = Set<ObjectIdentifier>()
 
     /// Resolves a provider to its associated instance.
     ///
@@ -54,6 +58,12 @@ public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
         // If we are already executing on the queue (re-entrant call from within a builder
         // that references this pod directly), skip the `sync` to prevent a deadlock.
         if DispatchQueue.getSpecific(key: queueKey) == true {
+            // Detect a self-referential cycle: the same provider's builder is already
+            // on the call stack and has called pod.resolve() on itself.
+            if currentlyBuildingProviders.contains(ObjectIdentifier(originalProvider)) {
+                let anyProvider = AnyProvider(originalProvider)
+                cyclicDependencyHandler("\nRe-entrant cyclic dependency detected. \(anyProvider) tried to resolve itself via a direct pod reference.")
+            }
             return makeInternalResolver().resolve(originalProvider)
         }
         return dispatchQueue.sync {
@@ -65,7 +75,9 @@ public final class SwiftiePod: ProviderResolver, @unchecked Sendable {
         InternalProviderResolver(
             instanceContainer: instanceContainer,
             processingAnyProviders: ProcessingAnyProviders.getInitial(),
-            providerOverrider: providerOverrider
+            providerOverrider: providerOverrider,
+            onBuildStart: { [self] id in currentlyBuildingProviders.insert(id) },
+            onBuildEnd: { [self] id in currentlyBuildingProviders.remove(id) }
         )
     }
 

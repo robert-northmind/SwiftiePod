@@ -11,26 +11,32 @@ struct InternalProviderResolver: ProviderResolver {
     init(
         instanceContainer: ProviderInstanceContainer,
         processingAnyProviders: ProcessingAnyProviders,
-        providerOverrider: ProviderOverrider
+        providerOverrider: ProviderOverrider,
+        onBuildStart: ((ObjectIdentifier) -> Void)? = nil,
+        onBuildEnd: ((ObjectIdentifier) -> Void)? = nil
     ) {
         self.instanceContainer = instanceContainer
         self.processingAnyProviders = processingAnyProviders
         self.providerOverrider = providerOverrider
+        self.onBuildStart = onBuildStart
+        self.onBuildEnd = onBuildEnd
     }
 
     private let instanceContainer: ProviderInstanceContainer
     private let processingAnyProviders: ProcessingAnyProviders
     private let providerOverrider: ProviderOverrider
+    private let onBuildStart: ((ObjectIdentifier) -> Void)?
+    private let onBuildEnd: ((ObjectIdentifier) -> Void)?
 
     func resolve<T>(_ originalProvider: Provider<T>) -> T {
         let anyProvider = AnyProvider(originalProvider)
-        
+
         let overriddenProvider = providerOverrider.getOverriddenAnyProvider(originalProvider)?.base as? Provider<T>
         let provider = overriddenProvider ?? originalProvider
         let wasOverridden = providerOverrider.isProviderOverridden(originalProvider)
 
         let isAllowedToCacheInstance = !(provider.scope is AlwaysCreateNewScope)
-        
+
         if isAllowedToCacheInstance {
             if wasOverridden {
                 if let overriddenInstance = providerOverrider.getOverriddenProviderInstance(originalProvider) as? T {
@@ -43,6 +49,8 @@ struct InternalProviderResolver: ProviderResolver {
 
         checkCyclicDependency(anyProvider: anyProvider, processingAnyProviders: processingAnyProviders)
 
+        let buildID = ObjectIdentifier(originalProvider)
+        onBuildStart?(buildID)
         let newInstance = provider.build(
             InternalProviderResolver(
                 instanceContainer: instanceContainer,
@@ -50,9 +58,12 @@ struct InternalProviderResolver: ProviderResolver {
                     processingAnyProviders,
                     withAnyProvider: anyProvider
                 ),
-                providerOverrider: providerOverrider
+                providerOverrider: providerOverrider,
+                onBuildStart: onBuildStart,
+                onBuildEnd: onBuildEnd
             )
         )
+        onBuildEnd?(buildID)
 
         if isAllowedToCacheInstance {
             if wasOverridden {
