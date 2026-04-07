@@ -116,6 +116,15 @@ final class ThreadSafeResults<T>: @unchecked Sendable {
     }
 }
 
+private let cyclicDependencyHandlerTestLock = NSLock()
+
+@discardableResult
+func withExclusiveCyclicDependencyHandler<T>(_ body: () -> T) -> T {
+    cyclicDependencyHandlerTestLock.lock()
+    defer { cyclicDependencyHandlerTestLock.unlock() }
+    return body()
+}
+
 struct MockProviderResolver: ProviderResolver {
     func resolve<T>(_ provider: Provider<T>) -> T {
         return provider.build(self)
