@@ -68,7 +68,7 @@ struct ReentrantResolveTests {
         let semaphore = DispatchSemaphore(value: 0)
         var resolvedValue: String?
 
-        DispatchQueue.global().async {
+        DispatchQueue.global(qos: .userInitiated).async {
             resolvedValue = pod.resolve(outerProvider)
             semaphore.signal()
         }
@@ -106,7 +106,7 @@ struct ReentrantResolveTests {
         let semaphore = DispatchSemaphore(value: 0)
         var service: ServiceStub?
 
-        DispatchQueue.global().async {
+        DispatchQueue.global(qos: .userInitiated).async {
             service = pod.resolve(serviceProvider)
             semaphore.signal()
         }
@@ -131,35 +131,37 @@ struct ReentrantResolveTests {
     /// test to prevent the resolve thread from continuing after the handler fires.
     @Test("Re-entrant self-cycle via direct pod reference calls cyclic dependency handler (issue #5)")
     func testReentrantSelfCycleIsDetected() {
-        let pod = SwiftiePod()
+        withExclusiveCyclicDependencyHandler {
+            let pod = SwiftiePod()
 
-        let detectedCycle = ThreadSafeResults<String>()
-        let detected = DispatchSemaphore(value: 0)
+            let detectedCycle = ThreadSafeResults<String>()
+            let detected = DispatchSemaphore(value: 0)
 
-        let originalHandler = cyclicDependencyHandler
-        cyclicDependencyHandler = { message in
-            detectedCycle.append(message)
-            detected.signal()
-            // Block the thread so execution does not fall through after detection.
-            repeat { Thread.sleep(forTimeInterval: 86400) } while true
+            let originalHandler = cyclicDependencyHandler
+            defer { cyclicDependencyHandler = originalHandler }
+            cyclicDependencyHandler = { message in
+                detectedCycle.append(message)
+                detected.signal()
+                // Block the thread so execution does not fall through after detection.
+                repeat { Thread.sleep(forTimeInterval: 86400) } while true
+            }
+
+            // The provider captures itself and calls pod.resolve() on itself directly.
+            var selfRefProvider: Provider<String>?
+            selfRefProvider = Provider<String> { _ in
+                pod.resolve(selfRefProvider!)  // ← re-entrant self-cycle
+            }
+
+            let queue = DispatchQueue(label: "reentrant-self-cycle-test", qos: .userInitiated)
+            queue.async {
+                _ = pod.resolve(selfRefProvider!)
+            }
+
+            detected.wait()
+
+            #expect(detectedCycle.values.count == 1)
+            #expect(detectedCycle.values.first?.contains("Re-entrant cyclic dependency detected") == true)
         }
-
-        // The provider captures itself and calls pod.resolve() on itself directly.
-        var selfRefProvider: Provider<String>?
-        selfRefProvider = Provider<String> { _ in
-            pod.resolve(selfRefProvider!)  // ← re-entrant self-cycle
-        }
-
-        let resolveThread = Thread {
-            _ = pod.resolve(selfRefProvider!)
-        }
-        resolveThread.start()
-
-        detected.wait()
-        cyclicDependencyHandler = originalHandler
-
-        #expect(detectedCycle.values.count == 1)
-        #expect(detectedCycle.values.first?.contains("Re-entrant cyclic dependency detected") == true)
     }
 
 // MARK: - Test helpers

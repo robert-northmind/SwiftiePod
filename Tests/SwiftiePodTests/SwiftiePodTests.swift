@@ -290,31 +290,32 @@ struct SwiftiePodTests {
 
     @Test("Cyclic dependency is detected")
     func testCyclicProviders() {
-        let capturedMessage = ThreadSafeResults<String>()
-        let detected = DispatchSemaphore(value: 0)
+        withExclusiveCyclicDependencyHandler {
+            let capturedMessage = ThreadSafeResults<String>()
+            let detected = DispatchSemaphore(value: 0)
 
-        let originalHandler = cyclicDependencyHandler
-        cyclicDependencyHandler = { message in
-            capturedMessage.append(message)
-            detected.signal()
-            // Block the thread forever instead of exiting it.
-            // Thread.exit() would leave the SwiftiePod dispatch queue
-            // in a bad state and crash the process.
-            repeat { Thread.sleep(forTimeInterval: 86400) } while true
+            let originalHandler = cyclicDependencyHandler
+            defer { cyclicDependencyHandler = originalHandler }
+            cyclicDependencyHandler = { message in
+                capturedMessage.append(message)
+                detected.signal()
+                // Block the thread forever instead of exiting it.
+                // Thread.exit() would leave the SwiftiePod dispatch queue
+                // in a bad state and crash the process.
+                repeat { Thread.sleep(forTimeInterval: 86400) } while true
+            }
+
+            let queue = DispatchQueue(label: "cyclic-dependency-test", qos: .userInitiated)
+            queue.async {
+                let testPod = SwiftiePod()
+                _ = testPod.resolve(cyclicProvider)
+            }
+
+            detected.wait()
+
+            #expect(capturedMessage.values.count == 1)
+            #expect(capturedMessage.values.first?.contains("Dependencies cycle detected") == true)
         }
-
-        let thread = Thread {
-            let testPod = SwiftiePod()
-            _ = testPod.resolve(cyclicProvider)
-        }
-        thread.start()
-
-        detected.wait()
-
-        cyclicDependencyHandler = originalHandler
-
-        #expect(capturedMessage.values.count == 1)
-        #expect(capturedMessage.values.first?.contains("Dependencies cycle detected") == true)
     }
 
     // MARK: - Dependency chain tests
