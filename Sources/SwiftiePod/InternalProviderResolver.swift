@@ -12,8 +12,8 @@ struct InternalProviderResolver: ProviderResolver {
         instanceContainer: ProviderInstanceContainer,
         processingAnyProviders: ProcessingAnyProviders,
         providerOverrider: ProviderOverrider,
-        onBuildStart: ((ObjectIdentifier) -> Void)? = nil,
-        onBuildEnd: ((ObjectIdentifier) -> Void)? = nil
+        onBuildStart: (@Sendable (ObjectIdentifier) -> Void)? = nil,
+        onBuildEnd: (@Sendable (ObjectIdentifier) -> Void)? = nil
     ) {
         self.instanceContainer = instanceContainer
         self.processingAnyProviders = processingAnyProviders
@@ -25,8 +25,8 @@ struct InternalProviderResolver: ProviderResolver {
     private let instanceContainer: ProviderInstanceContainer
     private let processingAnyProviders: ProcessingAnyProviders
     private let providerOverrider: ProviderOverrider
-    private let onBuildStart: ((ObjectIdentifier) -> Void)?
-    private let onBuildEnd: ((ObjectIdentifier) -> Void)?
+    private let onBuildStart: (@Sendable (ObjectIdentifier) -> Void)?
+    private let onBuildEnd: (@Sendable (ObjectIdentifier) -> Void)?
 
     func resolve<T>(_ originalProvider: Provider<T>) -> T {
         let anyProvider = AnyProvider(originalProvider)

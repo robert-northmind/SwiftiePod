@@ -2,7 +2,16 @@
 /.build
 /Packages
 xcuserdata/
+*.xcuserstate
 DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.claude/
+.cursor/
+.env
+.env.*
+!.env.example
+.npmrc
+.pypirc
+.yarnrc.yml
 .netrc
